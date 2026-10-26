@@ -1,18 +1,22 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 
 type Item = {
   id: number;
   name: string;
-  category: string;
+  category: "Tops" | "Bottoms" | "Dresses" | "Outerwear" | "Shoes" | "Accessories";
   palette: string;
   season: string;
   occasion: string;
   color: string;
   image: string;
   tags: string[];
+  source: string;
+  createdAt: string;
 };
+
+const STORAGE_KEY = "what-to-wear-items-v1";
 
 const initialItems: Item[] = [
   {
@@ -25,7 +29,9 @@ const initialItems: Item[] = [
     color: "Ivory",
     image:
       "https://images.unsplash.com/photo-1529139574466-a303027c1d8b?auto=format&fit=crop&w=900&q=80",
-    tags: ["Soft knit", "Long sleeve", "Minimal"]
+    tags: ["Soft knit", "Long sleeve", "Minimal"],
+    source: "library",
+    createdAt: "2026-10-01T09:00:00.000Z"
   },
   {
     id: 2,
@@ -37,7 +43,9 @@ const initialItems: Item[] = [
     color: "Sand",
     image:
       "https://images.unsplash.com/photo-1483985988355-763728e1935b?auto=format&fit=crop&w=900&q=80",
-    tags: ["Tailored", "Relaxed", "Lightweight"]
+    tags: ["Tailored", "Relaxed", "Lightweight"],
+    source: "library",
+    createdAt: "2026-10-02T12:00:00.000Z"
   },
   {
     id: 3,
@@ -49,56 +57,70 @@ const initialItems: Item[] = [
     color: "Black",
     image:
       "https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=900&q=80",
-    tags: ["Silk", "Evening", "Polished"]
-  },
-  {
-    id: 4,
-    name: "Camel trench",
-    category: "Outerwear",
-    palette: "Warm tones",
-    season: "Fall",
-    occasion: "Work",
-    color: "Camel",
-    image:
-      "https://images.unsplash.com/photo-1521572267360-ee0c2909d518?auto=format&fit=crop&w=900&q=80",
-    tags: ["Layering", "Structured", "Classic"]
-  },
-  {
-    id: 5,
-    name: "Cream leather tote",
-    category: "Accessories",
-    palette: "Neutral",
-    season: "All-season",
-    occasion: "Casual",
-    color: "Cream",
-    image:
-      "https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&w=900&q=80",
-    tags: ["Everyday", "Minimal", "Statement"]
-  },
-  {
-    id: 6,
-    name: "Chocolate loafers",
-    category: "Shoes",
-    palette: "Deep tones",
-    season: "Fall",
-    occasion: "Work",
-    color: "Brown",
-    image:
-      "https://images.unsplash.com/photo-1543163521-1bf539c55dd2?auto=format&fit=crop&w=900&q=80",
-    tags: ["Refined", "Leather", "City-ready"]
+    tags: ["Silk", "Evening", "Polished"],
+    source: "library",
+    createdAt: "2026-10-03T18:00:00.000Z"
   }
 ];
 
-const navItems = ["Closet", "Search", "Inspiration", "Profile"];
-const filterChips = ["All", "Tops", "Bottoms", "Dresses", "Outerwear", "Shoes", "Accessories"];
+const navItems = ["Closet", "Search", "Inspiration", "Profile"] as const;
+const filterChips = ["All", "Tops", "Bottoms", "Dresses", "Outerwear", "Shoes", "Accessories"] as const;
+const categories = ["Tops", "Bottoms", "Dresses", "Outerwear", "Shoes", "Accessories"] as const;
+
+type Category = (typeof categories)[number];
+
+function generateAutoTags(category: Category, name: string) {
+  const baseMap: Record<Category, string[]> = {
+    Tops: ["Soft structure", "Everyday", "Layering"],
+    Bottoms: ["Tailored", "Relaxed", "Straight fit"],
+    Dresses: ["Polished", "Easy drape", "Day to night"],
+    Outerwear: ["Classic", "Layering", "Statement"],
+    Shoes: ["Daily wear", "Smart", "Comfort first"],
+    Accessories: ["Minimal", "Everyday", "Editor pick"]
+  };
+
+  const normalizedName = name.toLowerCase();
+  const tags = [...baseMap[category]];
+
+  if (normalizedName.includes("black")) tags.unshift("Black");
+  if (normalizedName.includes("cream") || normalizedName.includes("ivory")) tags.unshift("Warm neutral");
+  if (normalizedName.includes("satin")) tags.unshift("Satin");
+  if (normalizedName.includes("trench")) tags.unshift("Trench");
+
+  return Array.from(new Set(tags)).slice(0, 4);
+}
 
 export default function Home() {
-  const [items, setItems] = useState(initialItems);
-  const [activeCategory, setActiveCategory] = useState("All");
-  const [activeTab, setActiveTab] = useState("Closet");
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [items, setItems] = useState<Item[]>(initialItems);
+  const [activeCategory, setActiveCategory] = useState<(typeof filterChips)[number]>("All");
+  const [activeTab, setActiveTab] = useState<(typeof navItems)[number]>("Closet");
   const [composerOpen, setComposerOpen] = useState(false);
+  const [selectedItem, setSelectedItem] = useState<Item | null>(null);
   const [draftName, setDraftName] = useState("");
-  const [draftCategory, setDraftCategory] = useState("Tops");
+  const [draftCategory, setDraftCategory] = useState<Category>("Tops");
+  const [draftTags, setDraftTags] = useState<string[]>(["Minimal", "Everyday"]);
+  const [selectedImage, setSelectedImage] = useState<string>("");
+  const [draftSource, setDraftSource] = useState("camera");
+  const [tagDraft, setTagDraft] = useState("");
+
+  useEffect(() => {
+    const parsed = window.localStorage.getItem(STORAGE_KEY);
+    if (parsed) {
+      try {
+        const saved = JSON.parse(parsed) as Item[];
+        if (Array.isArray(saved) && saved.length > 0) {
+          setItems(saved);
+        }
+      } catch {
+        // Ignore invalid local storage values.
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
+  }, [items]);
 
   const filteredItems = useMemo(() => {
     if (activeCategory === "All") return items;
@@ -107,33 +129,108 @@ export default function Home() {
 
   const outfitIdeas = useMemo(
     () => [
-      { title: "City day polish", pieces: ["Ivory ribbed knit", "Sand wide-leg trouser", "Chocolate loafers"] },
-      { title: "Evening minimal", pieces: ["Black satin slip", "Camel trench", "Cream leather tote"] },
-      { title: "Soft work edit", pieces: ["Ivory ribbed knit", "Camel trench", "Brown loafers"] }
+      {
+        title: "City day polish",
+        pieces: ["Ivory ribbed knit", "Sand wide-leg trouser", "Chocolate loafers"]
+      },
+      {
+        title: "Evening minimal",
+        pieces: ["Black satin slip", "Camel trench", "Cream leather tote"]
+      },
+      {
+        title: "Soft work edit",
+        pieces: ["Ivory ribbed knit", "Camel trench", "Brown loafers"]
+      }
     ],
     []
   );
 
-  const handleSubmit = () => {
-    if (!draftName.trim()) return;
-
-    const newItem: Item = {
-      id: Date.now(),
-      name: draftName,
-      category: draftCategory,
-      palette: "New",
-      season: "All-season",
-      occasion: "Casual",
-      color: "Cream",
-      image:
-        "https://images.unsplash.com/photo-1529139574466-a303027c1d8b?auto=format&fit=crop&w=900&q=80",
-      tags: ["New arrival", "Editor pick"]
-    };
-
-    setItems((current) => [newItem, ...current]);
+  const openComposer = () => {
     setDraftName("");
     setDraftCategory("Tops");
+    setDraftTags(["Minimal", "Everyday"]);
+    setSelectedImage("");
+    setDraftSource("camera");
+    setComposerOpen(true);
+  };
+
+  const handleImagePick = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = typeof reader.result === "string" ? reader.result : "";
+      setSelectedImage(result);
+      const fileName = file.name.replace(/\.[^/.]+$/, "");
+      if (!draftName.trim()) {
+        setDraftName(fileName || "New item");
+      }
+      const generated = generateAutoTags(draftCategory, fileName || draftName || "New item");
+      setDraftTags(generated);
+    };
+    reader.readAsDataURL(file);
+    event.target.value = "";
+  };
+
+  const saveDraftItem = () => {
+    if (!draftName.trim()) return;
+
+    const nextItem: Item = {
+      id: Date.now(),
+      name: draftName.trim(),
+      category: draftCategory,
+      palette: "Editorial",
+      season: "All-season",
+      occasion: "Casual",
+      color: draftCategory === "Bottoms" ? "Sand" : draftCategory === "Dresses" ? "Black" : "Ivory",
+      image: selectedImage || "https://images.unsplash.com/photo-1529139574466-a303027c1d8b?auto=format&fit=crop&w=900&q=80",
+      tags: draftTags.length ? draftTags : generateAutoTags(draftCategory, draftName),
+      source: draftSource,
+      createdAt: new Date().toISOString()
+    };
+
+    setItems((current) => [nextItem, ...current]);
     setComposerOpen(false);
+    setSelectedItem(nextItem);
+    setDraftName("");
+    setDraftCategory("Tops");
+    setDraftTags(["Minimal", "Everyday"]);
+    setSelectedImage("");
+  };
+
+  const updateSelectedItemTags = (nextTags: string[]) => {
+    if (!selectedItem) return;
+    setItems((current) =>
+      current.map((item) => (item.id === selectedItem.id ? { ...item, tags: nextTags } : item))
+    );
+    setSelectedItem((current) => (current ? { ...current, tags: nextTags } : null));
+  };
+
+  const removeTag = (tagToRemove: string) => {
+    if (!selectedItem) return;
+    const nextTags = selectedItem.tags.filter((tag) => tag !== tagToRemove);
+    updateSelectedItemTags(nextTags);
+  };
+
+  const addTag = () => {
+    if (!selectedItem || !tagDraft.trim()) return;
+    const clean = tagDraft.trim();
+    if (selectedItem.tags.includes(clean)) {
+      setTagDraft("");
+      return;
+    }
+
+    const nextTags = [...selectedItem.tags, clean];
+    updateSelectedItemTags(nextTags);
+    setTagDraft("");
+  };
+
+  const deleteItem = (id: number) => {
+    setItems((current) => current.filter((item) => item.id !== id));
+    if (selectedItem?.id === id) {
+      setSelectedItem(null);
+    }
   };
 
   return (
@@ -155,7 +252,7 @@ export default function Home() {
             <h1>Style your day with less effort.</h1>
           </div>
           <div className="cta-row">
-            <button className="primary-button" onClick={() => setComposerOpen(true)}>
+            <button className="primary-button" onClick={openComposer}>
               Add item
             </button>
             <button className="secondary-button">Search look</button>
@@ -217,7 +314,7 @@ export default function Home() {
 
         <section className="item-grid">
           {filteredItems.map((item) => (
-            <article key={item.id} className="item-card">
+            <article key={item.id} className="item-card" onClick={() => setSelectedItem(item)}>
               <div className="image-wrap">
                 <img src={item.image} alt={item.name} />
               </div>
@@ -228,8 +325,8 @@ export default function Home() {
                 </div>
                 <p>{item.category}</p>
                 <div className="tag-row">
-                  {item.tags.map((tag) => (
-                    <span key={tag} className="mini-tag">
+                  {item.tags.slice(0, 2).map((tag) => (
+                    <span key={`${item.id}-${tag}`} className="mini-tag">
                       {tag}
                     </span>
                   ))}
@@ -276,10 +373,29 @@ export default function Home() {
             </div>
 
             <div className="upload-panel">
-              <button className="upload-action">Camera</button>
-              <button className="upload-action">Library</button>
-              <button className="upload-action">Link</button>
+              <button className="upload-action" onClick={() => fileInputRef.current?.click()}>
+                Camera
+              </button>
+              <button className="upload-action" onClick={() => fileInputRef.current?.click()}>
+                Library
+              </button>
+              <button className="upload-action" onClick={() => setDraftSource("link")}>Link</button>
             </div>
+
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              onChange={handleImagePick}
+              hidden
+            />
+
+            {selectedImage && (
+              <div className="image-preview-shell">
+                <img src={selectedImage} alt="Selected clothing piece" className="image-preview" />
+              </div>
+            )}
 
             <label className="field-label">
               Item name
@@ -288,8 +404,8 @@ export default function Home() {
 
             <label className="field-label">
               Category
-              <select value={draftCategory} onChange={(e) => setDraftCategory(e.target.value)}>
-                {filterChips.filter((c) => c !== "All").map((category) => (
+              <select value={draftCategory} onChange={(e) => setDraftCategory(e.target.value as Category)}>
+                {categories.map((category) => (
                   <option key={category} value={category}>
                     {category}
                   </option>
@@ -297,16 +413,82 @@ export default function Home() {
               </select>
             </label>
 
+            <div className="field-label">
+              AI tags
+              <div className="tag-editor-row">
+                {draftTags.map((tag) => (
+                  <button
+                    key={tag}
+                    className="mini-tag action-tag"
+                    onClick={() => setDraftTags((current) => current.filter((entry) => entry !== tag))}
+                    type="button"
+                  >
+                    {tag} ×
+                  </button>
+                ))}
+              </div>
+            </div>
+
             <div className="modal-actions">
               <button className="secondary-button" onClick={() => setComposerOpen(false)}>
                 Cancel
               </button>
-              <button className="primary-button" onClick={handleSubmit}>
+              <button className="primary-button" onClick={saveDraftItem}>
                 Save item
               </button>
             </div>
           </div>
         </div>
+      )}
+
+      {selectedItem && (
+        <aside className="detail-panel">
+          <div className="detail-top">
+            <div>
+              <p className="eyebrow">Selected</p>
+              <h3>{selectedItem.name}</h3>
+            </div>
+            <button className="close-button" onClick={() => setSelectedItem(null)}>
+              ×
+            </button>
+          </div>
+
+          <img src={selectedItem.image} alt={selectedItem.name} className="detail-image" />
+
+          <div className="detail-meta">
+            <span>{selectedItem.category}</span>
+            <span>{selectedItem.season}</span>
+            <span>{selectedItem.occasion}</span>
+          </div>
+
+          <div className="detail-tags">
+            {selectedItem.tags.map((tag) => (
+              <button key={`${selectedItem.id}-${tag}`} className="mini-tag action-tag" onClick={() => removeTag(tag)} type="button">
+                {tag} ×
+              </button>
+            ))}
+          </div>
+
+          <div className="tag-add-row">
+            <input
+              value={tagDraft}
+              onChange={(e) => setTagDraft(e.target.value)}
+              placeholder="Add tag"
+            />
+            <button className="primary-button small" onClick={addTag} type="button">
+              Add
+            </button>
+          </div>
+
+          <div className="detail-actions">
+            <button className="secondary-button" onClick={() => deleteItem(selectedItem.id)}>
+              Delete
+            </button>
+            <button className="primary-button" onClick={() => setSelectedItem(null)}>
+              Done
+            </button>
+          </div>
+        </aside>
       )}
     </main>
   );
