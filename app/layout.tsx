@@ -1,6 +1,8 @@
+import "./globals.css";
+
 export const metadata = {
-  title: 'What to Wear',
-  description: 'An editorial fashion closet app.'
+  title: "What to Wear",
+  description: "An editorial fashion closet app."
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
